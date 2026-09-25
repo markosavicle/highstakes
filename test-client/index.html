@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HighStakes — Provably Fair Dice</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17;
+    --bg-elevated: #12182b;
+    --card: #161d33;
+    --border: #232b47;
+    --text: #e8ecf5;
+    --text-muted: #8b93ab;
+    --accent: #f0b429;
+    --accent-dim: #7a5c14;
+    --high: #22c55e;
+    --high-dim: #0f3d24;
+    --low: #6366f1;
+    --low-dim: #24225c;
+    --danger: #ef4444;
+    --radius: 14px;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: radial-gradient(ellipse at top, #0f1526 0%, var(--bg) 60%);
+    color: var(--text);
+    margin: 0;
+    min-height: 100vh;
+    padding: 2rem 1rem;
+    display: flex;
+    justify-content: center;
+  }
+  .container { width: 100%; max-width: 780px; display: flex; flex-direction: column; gap: 1.25rem; }
+
+  /* Header */
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    padding: 1rem 1.5rem; border-radius: var(--radius);
+  }
+  .brand { display: flex; align-items: center; gap: 0.6rem; font-size: 1.35rem; font-weight: 800; color: var(--accent); }
+  .brand-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--high); box-shadow: 0 0 8px var(--high); }
+  .player-info { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end; }
+  .username-pill { font-weight: 600; color: var(--text); font-size: 0.9rem; }
+  .balance-pill {
+    background: var(--card); border: 1px solid var(--border); padding: 0.4rem 0.9rem;
+    border-radius: 999px; font-weight: 700; color: var(--high); font-variant-numeric: tabular-nums;
+  }
+  .icon-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+    padding: 0.4rem 0.75rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Game card */
+  .game-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 2rem; text-align: center; position: relative; overflow: hidden;
+  }
+  .game-card::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% -20%, rgba(240,180,41,0.08), transparent 60%);
+    pointer-events: none;
+  }
+  .meta-row { display: flex; justify-content: center; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; font-size: 0.8rem; color: var(--text-muted); }
+  .phase-tag {
+    padding: 0.3rem 0.85rem; border-radius: 999px; font-weight: 700; font-size: 0.72rem;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .bg-betting { background: var(--high-dim); color: var(--high); }
+  .bg-rolling { background: var(--accent-dim); color: var(--accent); }
+  .bg-results { background: #3d1414; color: var(--danger); }
+  .player-count { display: flex; align-items: center; gap: 0.35rem; }
+
+  .timer {
+    font-family: 'JetBrains Mono', monospace; font-size: 2.75rem; font-weight: 700;
+    color: var(--accent); margin: 0.25rem 0; letter-spacing: -0.02em;
+  }
+  .roll-display {
+    font-family: 'JetBrains Mono', monospace; font-size: 5rem; font-weight: 800;
+    margin: 0.5rem 0; min-height: 96px; display: flex; align-items: center; justify-content: center;
+    color: var(--text);
+  }
+  .roll-display.rolling { color: var(--low); animation: pulse 0.25s infinite alternate; }
+  @keyframes pulse { from { opacity: 0.5; transform: scale(0.92); } to { opacity: 1; transform: scale(1.04); } }
+  .roll-display.win { color: var(--high); }
+  .roll-display.lose { color: var(--danger); }
+
+  .round-label { color: var(--text-muted); font-size: 0.8rem; margin-bottom: 1rem; }
+
+  .history-strip { display: flex; gap: 0.4rem; justify-content: center; flex-wrap: wrap; margin: 0.75rem 0 1.5rem; min-height: 28px; }
+  .history-chip {
+    padding: 0.3rem 0.65rem; border-radius: 6px; font-weight: 700; font-size: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .chip-high { background: var(--high-dim); color: var(--high); }
+  .chip-low { background: var(--low-dim); color: var(--low); }
+
+  .bet-panel { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
+  .amount-input {
+    width: 160px; padding: 0.7rem; text-align: center; font-size: 1.1rem; font-weight: 600;
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .amount-input:focus { outline: none; border-color: var(--accent); }
+  .choice-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; width: 100%; max-width: 420px; }
+  .choice-btn {
+    padding: 1.1rem; border-radius: 12px; border: 2px solid transparent; font-size: 1.05rem;
+    font-weight: 700; cursor: pointer; transition: all 0.15s; display: flex; flex-direction: column; gap: 0.15rem;
+  }
+  .choice-btn small { font-weight: 500; opacity: 0.75; font-size: 0.75rem; }
+  .choice-low { background: var(--low-dim); color: #a5b4fc; border-color: #363284; }
+  .choice-low:hover:not(:disabled) { border-color: var(--low); }
+  .choice-high { background: var(--high-dim); color: #86efac; border-color: #1a5c38; }
+  .choice-high:hover:not(:disabled) { border-color: var(--high); }
+  .choice-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* Cards */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.5rem; }
+  .card-title { font-size: 0.95rem; font-weight: 700; margin: 0 0 0.85rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text); }
+
+  .verify-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .verify-row input {
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 0.55rem 0.75rem; font-size: 0.82rem; font-family: 'JetBrains Mono', monospace;
+  }
+  .verify-row input#vServerSeed { flex: 2.5; min-width: 220px; }
+  .verify-row input#vClientSeed { flex: 1; min-width: 100px; }
+  .verify-row input#vNonce { width: 80px; }
+  .btn-primary {
+    background: var(--accent); color: #1a1305; border: none; padding: 0.55rem 1.1rem;
+    border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 0.85rem;
+  }
+  .verify-result {
+    margin-top: 0.75rem; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
+    padding: 0.6rem 0.85rem; border-radius: 8px; background: var(--bg-elevated); display: none;
+  }
+  .verify-result.match { color: var(--high); border: 1px solid var(--high-dim); }
+  .verify-result.mismatch { color: var(--danger); border: 1px solid #3d1414; }
+
+  .log-box {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; max-height: 150px;
+    overflow-y: auto; color: var(--text-muted);
+  }
+  .log-box div { padding: 0.15rem 0; border-bottom: 1px solid var(--border); }
+  .log-box div:last-child { border-bottom: none; }
+
+  /* Modals */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(5,7,14,0.9); display: flex;
+    align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(3px);
+  }
+  .modal-box {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 2rem; width: 380px; max-width: 90vw; max-height: 85vh; overflow-y: auto;
+  }
+  .modal-box h2 { margin: 0 0 1.25rem; color: var(--accent); font-size: 1.4rem; text-align: center; }
+  .modal-box h4 { color: var(--text); font-size: 0.9rem; margin: 0 0 0.5rem; }
+  .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; }
+  .tab {
+    flex: 1; padding: 0.55rem; background: var(--bg-elevated); color: var(--text-muted);
+    border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 0.85rem;
+  }
+  .tab.active { background: var(--accent); color: #1a1305; border-color: var(--accent); }
+  .field {
+    width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--bg-elevated); color: var(--text); font-size: 0.95rem; margin-bottom: 0.75rem;
+  }
+  .field:focus { outline: none; border-color: var(--accent); }
+  .btn-block { width: 100%; padding: 0.75rem; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; }
+  .btn-accent { background: var(--accent); color: #1a1305; }
+  .btn-muted { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border); }
+  .error-text { color: var(--danger); font-size: 0.85rem; margin-top: 0.6rem; display: none; text-align: center; }
+  .divider { border-top: 1px solid var(--border); margin: 1.25rem 0; }
+  .history-list { font-size: 0.78rem; background: var(--bg-elevated); border-radius: 8px; padding: 0.75rem; max-height: 160px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; }
+  .history-row { display: flex; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid var(--border); }
+  .history-row:last-child { border-bottom: none; }
+  .type-BET { color: var(--low); } .type-WIN { color: var(--high); } .type-RESET { color: var(--accent); } .type-STARTING_BALANCE { color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<div id="authModal" class="modal-overlay">
+  <div class="modal-box">
+    <h2>🎲 HighStakes</h2>
+    <div class="tabs">
+      <button id="tabLogin" class="tab active">Login</button>
+      <button id="tabRegister" class="tab">Register</button>
+    </div>
+    <input type="text" id="authUsername" class="field" placeholder="Username" autocomplete="username">
+    <input type="password" id="authPassword" class="field" placeholder="Password" autocomplete="current-password">
+    <button id="authSubmitBtn" class="btn-block btn-accent">Login</button>
+    <div id="authError" class="error-text"></div>
+    <p style="color:var(--text-muted); font-size:0.72rem; text-align:center; margin-top:1rem;">
+      Play-money demo only — no real currency, deposits, or withdrawals exist in this system.
+    </p>
+  </div>
+</div>
+
+<div id="profileModal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="width:440px;">
+    <h2 style="text-align:left; font-size:1.15rem;">Account</h2>
+    <h4 style="color:var(--low);">Change Password</h4>
+    <input type="password" id="currentPassword" class="field" placeholder="Current password">
+    <input type="password" id="newPassword" class="field" placeholder="New password">
+    <button id="updatePasswordBtn" class="btn-block" style="background:var(--low); color:white; margin-bottom:0.5rem;">Update Password</button>
+    <div id="profileError" class="error-text"></div>
+    <div class="divider"></div>
+    <h4 style="color:var(--high);">Round History</h4>
+    <div id="historyList" class="history-list">Loading…</div>
+    <div class="divider"></div>
+    <button id="closeProfileBtn" class="btn-block btn-muted">Close</button>
+  </div>
+</div>
+
+<div id="resetModal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="width:340px;">
+    <h2 style="font-size:1.1rem;">Reset Balance</h2>
+    <p style="color:var(--text-muted); font-size:0.85rem; text-align:center;">
+      This resets your play-money balance back to 1000. No real money is involved.
+    </p>
+    <div style="display:flex; gap:0.5rem; margin-top:1rem;">
+      <button id="confirmResetBtn" class="btn-block btn-accent">Confirm Reset</button>
+      <button id="cancelResetBtn" class="btn-block btn-muted">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="header">
+    <div class="brand"><span class="brand-dot"></span> HighStakes</div>
+    <div class="player-info">
+      <span class="username-pill" id="displayUser">—</span>
+      <span class="balance-pill" id="balance">$0</span>
+      <button class="icon-btn" id="openResetBtn">Reset</button>
+      <button class="icon-btn" id="openProfileBtn">Account</button>
+      <button class="icon-btn" id="logoutBtn">Logout</button>
+    </div>
+  </div>
+
+  <div class="game-card">
+    <div class="meta-row">
+      <span id="phaseTag" class="phase-tag bg-betting">Betting</span>
+      <span class="player-count">👥 <span id="playerCount">0</span> online</span>
+    </div>
+    <div class="timer" id="timerDisplay">8s</div>
+    <div class="roll-display" id="rollDisplay">?</div>
+    <div class="round-label">Round #<span id="roundNum">—</span> · High/Low Dice (0–99) · 1.94× payout</div>
+
+    <div class="history-strip" id="historyStrip"></div>
+
+    <div class="bet-panel">
+      <input type="number" id="amount" class="amount-input" value="10" min="1" max="500">
+      <div class="choice-row">
+        <button class="choice-btn choice-low" id="betLowBtn">LOW <small>0–49 · 1.94×</small></button>
+        <button class="choice-btn choice-high" id="betHighBtn">HIGH <small>50–99 · 1.94×</small></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🔍 Provably Fair Verification</div>
+    <p style="color:var(--text-muted); font-size:0.8rem; margin:0 0 0.75rem;">
+      Every round's server seed is hashed and published <em>before</em> betting closes, then revealed after resolution.
+      Paste the revealed seed below to independently verify the result was not tampered with.
+    </p>
+    <div class="verify-row">
+      <input type="text" id="vServerSeed" placeholder="Revealed server seed">
+      <input type="text" id="vClientSeed" placeholder="Client seed" value="table-main">
+      <input type="number" id="vNonce" placeholder="Nonce">
+      <button id="verifyBtn" class="btn-primary">Verify</button>
+    </div>
+    <div id="verifyResult" class="verify-result"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="color:var(--text-muted); font-size:0.82rem;">Live Log</div>
+    <div id="log" class="log-box"></div>
+  </div>
+</div>
+
+<script>
+let currentUser = null;
+let isRegisterMode = false;
+let connection = null;
+let phaseEndsUtc = null;
+let timerInterval = null;
+const rollHistory = [];
+
+const log = (msg, color) => {
+  const el = document.getElementById('log');
+  const line = document.createElement('div');
+  if (color) line.style.color = color;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.prepend(line);
+};
+
+// ---------- Auth ----------
+document.getElementById('tabLogin').addEventListener('click', () => {
+  isRegisterMode = false;
+  document.getElementById('tabLogin').classList.add('active');
+  document.getElementById('tabRegister').classList.remove('active');
+  document.getElementById('authSubmitBtn').textContent = 'Login';
+});
+document.getElementById('tabRegister').addEventListener('click', () => {
+  isRegisterMode = true;
+  document.getElementById('tabRegister').classList.add('active');
+  document.getElementById('tabLogin').classList.remove('active');
+  document.getElementById('authSubmitBtn').textContent = 'Create Account';
+});
+
+document.getElementById('authSubmitBtn').addEventListener('click', async () => {
+  const username = document.getElementById('authUsername').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const errDiv = document.getElementById('authError');
+  errDiv.style.display = 'none';
+
+  if (!username || !password) {
+    errDiv.textContent = 'Please fill in all fields.';
+    errDiv.style.display = 'block';
+    return;
+  }
+
+  const endpoint = isRegisterMode ? '/api/auth/register' : '/api/auth/login';
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      currentUser = data.username;
+      document.getElementById('authModal').style.display = 'none';
+      document.getElementById('displayUser').textContent = currentUser;
+      document.getElementById('balance').textContent = '$' + data.balance.toFixed(0);
+      initSignalR();
+    } else {
+      errDiv.textContent = data.message || 'Authentication failed.';
+      errDiv.style.display = 'block';
+    }
+  } catch {
+    errDiv.textContent = 'Network error — is the API reachable?';
+    errDiv.style.display = 'block';
+  }
+});
+
+document.getElementById('logoutBtn').addEventListener('click', () => {
+  if (connection) connection.stop();
+  currentUser = null;
+  document.getElementById('authModal').style.display = 'flex';
+});
+
+// ---------- Profile / History ----------
+document.getElementById('openProfileBtn').addEventListener('click', async () => {
+  document.getElementById('profileModal').style.display = 'flex';
+  const list = document.getElementById('historyList');
+  list.textContent = 'Loading…';
+  try {
+    const res = await fetch(`/api/history/${encodeURIComponent(currentUser)}`);
+    const rows = await res.json();
+    list.innerHTML = rows.length === 0
+      ? 'No activity yet.'
+      : rows.map(r => `<div class="history-row"><span class="type-${r.type}">${r.type}</span><span>${r.amount >= 0 ? '+' : ''}${r.amount.toFixed(0)} → $${r.balanceAfter.toFixed(0)}</span></div>`).join('');
+  } catch {
+    list.textContent = 'Failed to load history.';
+  }
+});
+document.getElementById('closeProfileBtn').addEventListener('click', () => {
+  document.getElementById('profileModal').style.display = 'none';
+});
+document.getElementById('updatePasswordBtn').addEventListener('click', async () => {
+  const currentPassword = document.getElementById('currentPassword').value;
+  const newPassword = document.getElementById('newPassword').value;
+  const errDiv = document.getElementById('profileError');
+  errDiv.style.display = 'none';
+
+  const res = await fetch('/api/profile/update-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentUsername: currentUser, currentPassword, newPassword })
+  });
+  const data = await res.json();
+  if (res.ok && data.success) {
+    document.getElementById('currentPassword').value = '';
+    document.getElementById('newPassword').value = '';
+    log('Password updated.', '#22c55e');
+  } else {
+    errDiv.textContent = data.message || 'Failed to update password.';
+    errDiv.style.display = 'block';
+  }
+});
+
+// ---------- Reset ----------
+document.getElementById('openResetBtn').addEventListener('click', () => {
+  document.getElementById('resetModal').style.display = 'flex';
+});
+document.getElementById('cancelResetBtn').addEventListener('click', () => {
+  document.getElementById('resetModal').style.display = 'none';
+});
+document.getElementById('confirmResetBtn').addEventListener('click', async () => {
+  const res = await fetch('/api/wallet/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: currentUser })
+  });
+  const data = await res.json();
+  if (res.ok && data.success) {
+    document.getElementById('balance').textContent = '$' + data.newBalance.toFixed(0);
+    document.getElementById('resetModal').style.display = 'none';
+    log('Balance reset to $1000.', '#f0b429');
+  }
+});
+
+// ---------- Timer ----------
+function startTimer() {
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    if (!phaseEndsUtc) return;
+    const diffSec = Math.max(0, Math.floor((phaseEndsUtc - new Date()) / 1000));
+    document.getElementById('timerDisplay').textContent = diffSec + 's';
+    if (diffSec <= 0) clearInterval(timerInterval);
+  }, 200);
+}
+
+// ---------- SignalR ----------
+function initSignalR() {
+  connection = new signalR.HubConnectionBuilder()
+    .withUrl("/hubs/game")
+    .withAutomaticReconnect()
+    .build();
+
+  connection.on("Welcome", (data) => {
+    document.getElementById('balance').textContent = '$' + data.balance.toFixed(0);
+    renderSnapshot(data.snapshot);
+    log(`Connected as ${currentUser}`);
+  });
+
+  connection.on("NewRound", (data) => {
+    document.getElementById('roundNum').textContent = data.roundNumber;
+    setPhase('Betting');
+    phaseEndsUtc = new Date(data.bettingClosesUtc);
+    startTimer();
+    const rollEl = document.getElementById('rollDisplay');
+    rollEl.textContent = '?';
+    rollEl.className = 'roll-display';
+    enableBets(true);
+    log(`Round ${data.roundNumber} — betting open`);
+  });
+
+  connection.on("BetPlaced", (bet) => {
+    log(`${bet.playerId} bet $${bet.amount} on ${bet.choice.toUpperCase()}`);
+  });
+
+  connection.on("BalanceUpdated", (balance) => {
+    document.getElementById('balance').textContent = '$' + balance.toFixed(0);
+  });
+
+  connection.on("PlayerCountUpdated", (count) => {
+    document.getElementById('playerCount').textContent = count;
+  });
+
+  connection.on("RoundResult", (result) => {
+    setPhase('Results');
+    enableBets(false);
+    clearInterval(timerInterval);
+    document.getElementById('timerDisplay').textContent = '0s';
+
+    const rollEl = document.getElementById('rollDisplay');
+    rollEl.textContent = result.roll;
+    rollEl.className = 'roll-display';
+
+    addToHistory(result.roll, result.winner);
+
+    document.getElementById('vServerSeed').value = result.revealedServerSeed;
+    document.getElementById('vClientSeed').value = result.clientSeed;
+    document.getElementById('vNonce').value = result.nonce;
+
+    const mine = result.outcomes.find(o => o.playerId.toLowerCase() === currentUser.toLowerCase());
+    if (mine) {
+      rollEl.classList.add(mine.won ? 'win' : 'lose');
+      if (mine.won) {
+        log(`You won $${mine.payout.toFixed(0)} — balance $${mine.newBalance.toFixed(0)}`, '#22c55e');
+      } else {
+        log(`You lost — balance $${mine.newBalance.toFixed(0)}`, '#ef4444');
+      }
+      document.getElementById('balance').textContent = '$' + mine.newBalance.toFixed(0);
+    }
+  });
+
+  connection.on("Error", (err) => log(err.message, '#ef4444'));
+
+  connection.start()
+    .then(() => connection.invoke("JoinTable", "main", currentUser))
+    .catch(err => log(`Connection error: ${err}`, '#ef4444'));
+}
+
+function setPhase(p) {
+  const tag = document.getElementById('phaseTag');
+  tag.textContent = p;
+  tag.className = 'phase-tag bg-' + p.toLowerCase();
+  if (p === 'Rolling') {
+    const rollEl = document.getElementById('rollDisplay');
+    rollEl.classList.add('rolling');
+    rollEl.textContent = '🎲';
+  }
+}
+
+function enableBets(enable) {
+  document.getElementById('betLowBtn').disabled = !enable;
+  document.getElementById('betHighBtn').disabled = !enable;
+}
+
+function renderSnapshot(s) {
+  document.getElementById('roundNum').textContent = s.roundNumber;
+  document.getElementById('playerCount').textContent = s.playerCount;
+  setPhase(s.phase);
+  enableBets(s.phase === 'Betting');
+  if (s.phaseEndsUtc) {
+    phaseEndsUtc = new Date(s.phaseEndsUtc);
+    startTimer();
+  }
+}
+
+function placeBet(choice) {
+  const amount = parseFloat(document.getElementById('amount').value);
+  connection.invoke("PlaceBet", "main", currentUser, amount, choice)
+    .catch(err => log(`Bet error: ${err}`, '#ef4444'));
+}
+document.getElementById('betLowBtn').addEventListener('click', () => placeBet('low'));
+document.getElementById('betHighBtn').addEventListener('click', () => placeBet('high'));
+
+function addToHistory(roll, winner) {
+  rollHistory.unshift({ roll, winner });
+  if (rollHistory.length > 8) rollHistory.pop();
+  document.getElementById('historyStrip').innerHTML = rollHistory
+    .map(h => `<span class="history-chip chip-${h.winner}">${h.roll}</span>`)
+    .join('');
+}
+
+// ---------- Provably-fair verifier ----------
+document.getElementById('verifyBtn').addEventListener('click', () => {
+  const serverSeed = document.getElementById('vServerSeed').value.trim();
+  const clientSeed = document.getElementById('vClientSeed').value.trim();
+  const nonce = parseInt(document.getElementById('vNonce').value, 10);
+  const box = document.getElementById('verifyResult');
+
+  if (!serverSeed || !clientSeed || isNaN(nonce)) {
+    box.className = 'verify-result mismatch';
+    box.style.display = 'block';
+    box.textContent = 'Fill all fields to verify.';
+    return;
+  }
+
+  const message = `${clientSeed}:${nonce}`;
+  const hmacHex = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const b0 = parseInt(hmacHex.substr(0, 2), 16);
+  const b1 = parseInt(hmacHex.substr(2, 2), 16);
+  const b2 = parseInt(hmacHex.substr(4, 2), 16);
+  const b3 = parseInt(hmacHex.substr(6, 2), 16);
+  const value = (b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)) >>> 0;
+  const calculatedRoll = value % 100;
+
+  box.className = 'verify-result match';
+  box.style.display = 'block';
+  box.innerHTML = `Recomputed roll: <strong>${calculatedRoll}</strong> (${calculatedRoll >= 50 ? 'HIGH' : 'LOW'}) — matches independently if this equals the round's displayed result.`;
+});
+</script>
+</body>
+</html>

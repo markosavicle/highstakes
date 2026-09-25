@@ -1,0 +1,29 @@
+services:
+  highstakes-api:
+    build: ./src/HighStakes.Api
+    container_name: highstakes-api
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    volumes:
+      - highstakes-db:/app/data
+    networks:
+      - nginx-net
+
+  highstakes-web:
+    image: nginx:alpine
+    container_name: highstakes-web
+    restart: unless-stopped
+    volumes:
+      - ./test-client:/usr/share/nginx/html:ro
+    ports:
+      - '8081:80'
+    networks:
+      - nginx-net
+
+volumes:
+  highstakes-db:
+
+networks:
+  nginx-net:
+    external: true
