@@ -56,17 +56,15 @@ app.MapPost("/api/auth/login", (AuthRequest req, IWalletService wallet) =>
     return Results.BadRequest(new { success = false, message = "Invalid username or password." });
 });
 
-app.MapPost("/api/profile/update-password", (UpdateProfileRequest req, IWalletService wallet, HighStakesDbContext db) =>
+app.MapPost("/api/profile/update-password", (UpdateProfileRequest req, IWalletService wallet) =>
 {
     if (!wallet.ValidateCredentials(req.CurrentUsername, req.CurrentPassword))
         return Results.BadRequest(new { success = false, message = "Current password is incorrect." });
 
-    if (string.IsNullOrWhiteSpace(req.NewPassword) || req.NewPassword.Length < 4)
-        return Results.BadRequest(new { success = false, message = "New password must be at least 4 characters." });
+    if (!wallet.ChangePassword(req.CurrentUsername, req.NewPassword, out var err))
+        return Results.BadRequest(new { success = false, message = err });
 
-    if (!wallet.Register(req.CurrentUsername + "__temp_never_used__", "temp", out _)) { /* no-op, placeholder removed below */ }
-
-    return Results.Ok(new { success = true, message = "Use the dedicated password-change flow (see WalletService)." });
+    return Results.Ok(new { success = true, message = "Password updated." });
 });
 
 // Play-money only: resets balance back to the starting amount. No real-money path exists.
